@@ -190,22 +190,41 @@ namespace sjtu {
         // This function returns a ValueGuard object that holds a reference to the value in the trie of the given version (default: newest version). If
         // the key does not exist in the trie, it will return std::nullopt.
         template <class T>
-        auto Get(std::string_view key, size_t version = -1) -> std::optional<ValueGuard<T>>;
+        auto Get(std::string_view key, size_t version = -1) -> std::optional<ValueGuard<T>> {
+            if (version == -1) version = snapshots_.size() - 1;
+            const T *ptr = snapshots_[version].Get<T>(key);
+            if (!ptr) return std::nullopt;
+            else return ValueGuard<T>(snapshots_[version], *ptr);
+        }
 
         // This function will insert the key-value pair into the trie. If the key already exists in the
         // trie, it will overwrite the value
         // return the version number after operation
         // Hint: new version should only be visible after the operation is committed(completed)
         template <class T>
-        size_t Put(std::string_view key, T value);
+        size_t Put(std::string_view key, T value) {
+            write_lock_.lock();
+            snapshots_.push_back(snapshots_.back().Put(key, std::move(value)));
+            auto version = snapshots_.size() - 1;
+            write_lock_.unlock();
+            return version;
+        }
 
         // This function will remove the key-value pair from the trie.
         // return the version number after operation
         // if the key does not exist, version number should not be increased
-        size_t Remove(std::string_view key);
+        size_t Remove(std::string_view key) {
+            write_lock_.lock();
+            snapshots_.push_back(snapshots_.back().Remove(key));
+            auto version = snapshots_.size() - 1;
+            write_lock_.unlock();
+            return version;
+        }
 
         // This function return the newest version number
-        size_t get_version();
+        size_t get_version() {
+            return snapshots_.size() - 1;
+        }
 
     private:
         // This mutex sequences all writes operations and allows only one write operation at a time.
